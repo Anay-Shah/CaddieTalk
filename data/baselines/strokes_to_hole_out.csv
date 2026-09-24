@@ -1,0 +1,102 @@
+# Expected strokes to hole out, by lie and distance to the pin.
+#
+# SOURCE AND STATUS — read this before trusting any absolute number.
+#
+# These values are a hand-built approximation. They follow the SHAPE of published
+# strokes-gained research (Mark Broadie's work is the standard reference): monotonically
+# increasing with distance, rough costing roughly 0.15-0.25 strokes over fairway, sand
+# more, recovery from trees more again, and putting flattening out past ~10 m. They are
+# NOT copied from any dataset and should not be cited as authoritative.
+#
+# This is a deliberate decision, recorded in DECISIONS.md (D-006). The engine's job is to
+# compare aim points against each other, and that comparison is far less sensitive to
+# baseline accuracy than the absolute expected-score numbers are. An approximate table
+# still produces useful recommendations.
+#
+# The values describe a scratch-ish player. Amateur scaling is applied separately via
+# `handicap_scale` in data/config/engine.yaml, so this table stays a single reference
+# point rather than being duplicated per skill level.
+#
+# TO IMPROVE: once real rounds are logged, fit these from actual shot outcomes and
+# replace the table wholesale. Keep the header note accurate about where numbers came from.
+#
+# Distances are metres. Interpolated linearly between rows; clamped outside the range.
+lie,distance_m,strokes
+green,0.3,1.00
+green,1.0,1.10
+green,2.0,1.35
+green,3.0,1.50
+green,5.0,1.68
+green,7.0,1.82
+green,10.0,1.95
+green,15.0,2.10
+green,20.0,2.22
+green,30.0,2.40
+tee,90.0,2.77
+tee,110.0,2.82
+tee,130.0,2.87
+tee,150.0,2.94
+tee,170.0,3.02
+tee,190.0,3.12
+tee,210.0,3.23
+tee,230.0,3.36
+tee,250.0,3.50
+fairway,5.0,2.15
+fairway,10.0,2.25
+fairway,15.0,2.35
+fairway,18.3,2.40
+fairway,36.6,2.60
+fairway,54.9,2.68
+fairway,73.2,2.75
+fairway,91.4,2.80
+fairway,109.7,2.85
+fairway,128.0,2.91
+fairway,146.3,2.99
+fairway,164.6,3.08
+fairway,182.9,3.19
+fairway,201.2,3.32
+fairway,219.5,3.45
+fairway,237.7,3.58
+rough,5.0,2.30
+rough,10.0,2.42
+rough,15.0,2.50
+rough,18.3,2.55
+rough,36.6,2.78
+rough,54.9,2.88
+rough,73.2,2.96
+rough,91.4,3.02
+rough,109.7,3.08
+rough,128.0,3.15
+rough,146.3,3.24
+rough,164.6,3.34
+rough,182.9,3.45
+rough,201.2,3.58
+rough,219.5,3.72
+sand,5.0,2.45
+sand,10.0,2.50
+sand,15.0,2.53
+sand,18.3,2.55
+sand,36.6,2.82
+sand,54.9,2.96
+sand,73.2,3.06
+sand,91.4,3.14
+sand,109.7,3.22
+sand,128.0,3.32
+sand,146.3,3.44
+sand,164.6,3.58
+sand,182.9,3.72
+recovery,5.0,2.70
+recovery,10.0,2.82
+recovery,15.0,2.92
+recovery,18.3,3.00
+recovery,36.6,3.20
+recovery,54.9,3.35
+recovery,73.2,3.45
+recovery,91.4,3.55
+recovery,109.7,3.65
+recovery,128.0,3.75
+recovery,146.3,3.88
+recovery,164.6,4.00
+recovery,182.9,4.15
+recovery,201.2,4.30
+recovery,219.5,4.45

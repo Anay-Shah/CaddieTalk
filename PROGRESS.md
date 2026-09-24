@@ -4,8 +4,8 @@ A plain-language log of what actually exists so far. Newest entries at the top.
 For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 `docs/architecture.md`.
 
-**Current milestone:** M2 — Strategy engine (not started)
-**Overall:** M0 complete · M1 complete
+**Current milestone:** M3 — Player model (not started)
+**Overall:** M0 complete · M1 complete · M2 complete
 
 ---
 
@@ -15,8 +15,8 @@ For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 |-----------|------------------|--------|
 | M0 | Repo structure, tooling, CI, decision log | ✅ Done |
 | M1 | Import a real course from OpenStreetMap into clean per-hole geometry | ✅ Done |
-| M2 | Strategy engine — Monte Carlo simulation and aim optimization | ⬜ Next |
-| M3 | Player model — per-club distance and dispersion | ⬜ Not started |
+| M2 | Strategy engine — Monte Carlo simulation and aim optimization | ✅ Done |
+| M3 | Player model — per-club distance and dispersion | ⬜ Next |
 | M4 | Backend on AWS (first milestone that spends money) | ⬜ Not started |
 | M5 | Mobile app v1 — map, GPS, distances, shot logging | ⬜ Not started |
 | M6 | Text caddie — Bedrock agent with tools | ⬜ Not started |
@@ -25,6 +25,88 @@ For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 | M9 | Post-round review and practice plans | ⬜ Not started |
 
 **Money spent on AWS so far: $0.** Nothing is deployed. M1–M3 run entirely on your laptop.
+
+---
+
+## 2026-09-24 — M2 complete: the strategy engine
+
+**The engine now gives real club and aim recommendations on real holes.** This is the
+heart of the project — everything before it was setup.
+
+Try it:
+
+```bash
+.venv/bin/python -m caddie_engine recommend data/courses/braeben/course.json --hole 3 --handicap 15
+```
+
+which prints something like:
+
+```
+Braeben Golf Course — hole 3 (par 4)
+  311 yds to pin, from tee, handicap 15
+
+Dr, aim 20 yds right (expected 4.38)
+  alt: 3w 25 yds right (4.41)
+```
+
+and writes a heatmap showing where 3,000 simulated tee shots actually land.
+
+### How it works, briefly
+
+1. **Sample.** Draw thousands of plausible shots from your club's distribution — how far
+   it goes on average, and how much that varies.
+2. **Adjust.** Wind and elevation change how far the shot has to travel; rough costs
+   distance and accuracy.
+3. **Classify.** Work out what each simulated ball landed on: green, fairway, bunker,
+   water, trees, rough.
+4. **Score.** Look up "how many more shots from here" for each landing spot, add penalty
+   strokes for water, and average.
+5. **Repeat** for every sensible club against a fan of aim points, and pick the lowest
+   average.
+
+The strategy is not programmed in anywhere. "Aim away from the bunker" emerges from
+counting outcomes.
+
+### Does it actually give sensible advice?
+
+Three checks, all of which it passes:
+
+- **On a dogleg** (BraeBen hole 3), it aims down the fairway rather than straight at the
+  pin — which is what any golfer would do.
+- **In wind**, from 150 yards it plays 6 iron in calm, **4 iron into a 15mph wind**,
+  7 iron downwind, and 5 iron when the green is 10 yards uphill. That is exactly how a
+  caddie clubs a player.
+- **By skill**, a 5-handicap gets a better expected score than a 25-handicap from the same
+  spot.
+
+### Two real bugs the tests caught
+
+1. **The engine was blind to greenside bunkers.** My strokes table only went down to about
+   20 metres for rough and sand, so anything nearer clamped to the same value — meaning a
+   bunker beside the green cost exactly as much as rough. Fixed by extending the table
+   down to 5 metres.
+2. **Crosswind blew the ball the wrong way.** A sign error meant the ball drifted *into*
+   the wind rather than with it. Caught by a test asserting that wind from the left pushes
+   the ball right.
+
+There was also a third finding that turned out not to be a bug. A test expecting a
+greenside bunker to shift the aim kept failing — but investigating showed the engine was
+right and the test was wrong. At 20 metres from the pin, sand costs only slightly more
+than rough, so being closer to the hole is worth the risk. Re-reading the plan, the
+scenario it describes is a **fairway** bunker on a tee shot, where the penalty is much
+larger. With that scenario the engine shifts the aim decisively, even for a straight
+hitter.
+
+96 tests passing, none touching the network.
+
+### Known approximations (deliberate, see DECISIONS.md)
+
+- The strokes-to-hole-out table is hand-built, not fitted from data. Good enough for
+  comparing aim points; not to be quoted as fact.
+- Club distances come from a generic mid-handicap bag. **M3 replaces this with your real
+  numbers**, which is what makes the advice personal rather than generic.
+- Water is scored as "penalty stroke, then play from rough nearby" rather than computing
+  an exact drop point.
 
 ---
 

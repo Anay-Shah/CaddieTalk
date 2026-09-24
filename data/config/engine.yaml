@@ -25,6 +25,12 @@ player_model:
   # Pseudo-shot weight given to the handicap-based prior when blending with real data.
   prior_pseudo_shots: 8
 
+baseline:
+  # The strokes table describes a scratch-ish player. Amateurs take more shots from the
+  # same spot, so scale it by handicap: strokes * (1 + per_handicap_stroke * handicap).
+  # 0.010 makes a 15-handicap take ~15% more strokes to hole out than the reference.
+  per_handicap_stroke: 0.010
+
 lie_modifiers:
   # distance_mult scales carry; lateral_mult scales dispersion.
   fairway: { distance_mult: 1.00, lateral_mult: 1.00 }
