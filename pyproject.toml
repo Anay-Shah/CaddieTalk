@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caddietalk"
+version = "0.1.0"
+description = "Voice-first AI golf caddie — backend services and strategy engine"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "shapely>=2.0",
+    # Capped below 3.7: newer arm64 macOS wheels require macOS 14+, and falling back to a
+    # source build needs a system PROJ install. Lift this once the dev machine is on 14+.
+    "pyproj>=3.6,<3.7",
+    "pydantic>=2.6",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "black>=24.0",
+    "matplotlib>=3.8",
+]
+infra = [
+    "aws-cdk-lib>=2.140",
+    "constructs>=10.3",
+]
+
+[tool.setuptools.packages.find]
+# Each service keeps its own directory, but they install into one environment so that
+# `python -m course_import` works from anywhere. `infra` is deliberately excluded — it is
+# a CDK app, not a library, and is run from its own directory.
+where = ["services/engine", "services/course_import"]
+
+[tool.pytest.ini_options]
+# Services are imported by name without installation; keep each service's root on the path.
+# Services are installed as packages; `infra` is a CDK app run in place, so it needs the
+# path entry to be importable by its tests.
+pythonpath = ["infra"]
+testpaths = ["services", "infra"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]

@@ -1,0 +1,38 @@
+# Tunable engine parameters. Nothing in this file is authoritative — these are starting
+# values meant to be adjusted once real rounds have been logged. Engine code must read
+# from here rather than hard-coding any of it.
+
+units:
+  # Meters are used internally everywhere. Yards appear only in the UI and caddie speech.
+  internal: meters
+
+conditions:
+  # Plays-like distance adjustment per mph of wind component along the shot line.
+  headwind_pct_per_mph: 1.0
+  tailwind_pct_per_mph: -0.5
+  # Lateral drift as a fraction of shot distance, per mph of crosswind component.
+  crosswind_drift_per_mph: 0.004
+  # Plays-like yards added per yard of elevation gain to the target.
+  elevation_yds_per_yd: 1.0
+
+simulation:
+  samples_per_candidate: 3000
+  # Aim points are laid out on a grid across a cone toward the target.
+  aim_grid_spacing_m: 4.5
+  aim_cone_half_width_deg: 12.0
+
+player_model:
+  # Pseudo-shot weight given to the handicap-based prior when blending with real data.
+  prior_pseudo_shots: 8
+
+lie_modifiers:
+  # distance_mult scales carry; lateral_mult scales dispersion.
+  fairway: { distance_mult: 1.00, lateral_mult: 1.00 }
+  tee: { distance_mult: 1.00, lateral_mult: 1.00 }
+  rough: { distance_mult: 0.92, lateral_mult: 1.35 }
+  sand: { distance_mult: 0.80, lateral_mult: 1.50 }
+  recovery: { distance_mult: 0.65, lateral_mult: 1.80 }
+
+penalties:
+  water_strokes: 1
+  out_of_bounds_strokes: 1
