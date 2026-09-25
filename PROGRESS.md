@@ -4,8 +4,8 @@ A plain-language log of what actually exists so far. Newest entries at the top.
 For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 `docs/architecture.md`.
 
-**Current milestone:** M3 — Player model (not started)
-**Overall:** M0 complete · M1 complete · M2 complete
+**Current milestone:** M4 — Backend on AWS (not started; first milestone that spends money)
+**Overall:** M0–M3 complete. The whole brain of the app works locally.
 
 ---
 
@@ -16,8 +16,8 @@ For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 | M0 | Repo structure, tooling, CI, decision log | ✅ Done |
 | M1 | Import a real course from OpenStreetMap into clean per-hole geometry | ✅ Done |
 | M2 | Strategy engine — Monte Carlo simulation and aim optimization | ✅ Done |
-| M3 | Player model — per-club distance and dispersion | ⬜ Next |
-| M4 | Backend on AWS (first milestone that spends money) | ⬜ Not started |
+| M3 | Player model — per-club distance and dispersion | ✅ Done |
+| M4 | Backend on AWS (first milestone that spends money) | ⬜ Next |
 | M5 | Mobile app v1 — map, GPS, distances, shot logging | ⬜ Not started |
 | M6 | Text caddie — Bedrock agent with tools | ⬜ Not started |
 | M7 | Voice caddie — push-to-talk | ⬜ Not started |
@@ -25,6 +25,64 @@ For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 | M9 | Post-round review and practice plans | ⬜ Not started |
 
 **Money spent on AWS so far: $0.** Nothing is deployed. M1–M3 run entirely on your laptop.
+
+---
+
+## 2026-09-24 — M3 complete: the player model
+
+**The engine now learns your actual game instead of assuming a generic one.** With M2 the
+advice was competent but impersonal — it assumed you hit a 7 iron 135 yards because that's
+what a typical mid-handicapper does. Now it measures.
+
+### What it does
+
+Every logged shot gives two numbers once you know where the player was aiming:
+
+- **How far it went** — measured *along* the line to the target, not straight-line to
+  where it finished. A shot 140 m down the line that finishes 30 m right travelled 140 m,
+  not 143 m.
+- **How far off line** — the sideways miss, positive for right.
+
+Collect those per club and you get the four numbers the simulator needs: average distance,
+how much that varies, systematic miss, and how much *that* varies.
+
+### The payoff, concretely
+
+Same 150-yard approach on BraeBen's 11th, for a player who hits it 20 m shorter than the
+default assumes and leaks it right:
+
+```
+generic bag : 6i   straight at it      expected 3.29
+measured bag: 4i   10 yds left         expected 3.40
+```
+
+Two more clubs, and aim left to allow for the push. That is the difference between an app
+that knows golf and an app that knows *your* golf.
+
+### Three judgement calls
+
+1. **Early shots barely move the needle.** One long drive shouldn't convince the app you
+   hit a 7 iron 200 yards. Real shots are blended against the generic starting numbers,
+   with the generic ones carrying the weight of about 8 shots. After a couple of rounds
+   your real numbers dominate.
+2. **Duffs are thrown away.** One topped shot that goes 25 yards would otherwise drag a
+   club's average down permanently. Shots under ~55% of a club's typical distance are
+   treated as mishits and excluded — a duff is a different event, not the tail of the same
+   distribution.
+3. **Spread needs more evidence than average.** Two shots tell you something about how far
+   a club goes and nothing trustworthy about how much it scatters, so the spread stays at
+   the default until there are at least four shots.
+
+All three are configurable in `data/config/engine.yaml`.
+
+### Testing
+
+25 new tests, 121 total, all passing. The acceptance check is a round trip: generate
+shots from a known distribution, fit them back, and confirm you recover roughly what you
+started with. It uses the *same* sampler the engine simulates with, so the test also
+proves the player model and the simulator agree on what a shot actually is.
+
+**Still $0 spent on AWS.** M4 is the first milestone that costs anything.
 
 ---
 

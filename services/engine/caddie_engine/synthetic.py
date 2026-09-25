@@ -9,9 +9,12 @@ Used by the test suite and by the demo script.
 
 from __future__ import annotations
 
+import numpy as np
 from shapely.geometry import Point, Polygon
 
 from .geometry import HoleModel
+from .player_model import ClubStats, Shot
+from .simulate import sample_landings
 
 
 def rect(x0: float, y0: float, x1: float, y1: float) -> Polygon:
@@ -34,6 +37,34 @@ def straight_hole(**overrides) -> HoleModel:
     )
     defaults.update(overrides)
     return HoleModel(**defaults)
+
+
+def logged_shots(
+    club: ClubStats,
+    count: int,
+    start_xy: tuple[float, float] = (0.0, 0.0),
+    target_xy: tuple[float, float] | None = None,
+    rng: np.random.Generator | None = None,
+) -> list[Shot]:
+    """Generate shots that a player with these club stats would plausibly have hit.
+
+    Built on the same sampler the engine uses to simulate, so fitting these back should
+    return roughly the stats they came from. That round trip is the main check that the
+    player model and the simulator agree on what a shot is.
+    """
+    rng = rng or np.random.default_rng(0)
+    target_xy = target_xy or (start_xy[0], start_xy[1] + club.mean_m)
+
+    landings = sample_landings(start_xy, target_xy, club, samples=count, rng=rng)
+    return [
+        Shot(
+            club=club.name,
+            start_xy=start_xy,
+            end_xy=(float(x), float(y)),
+            target_xy=target_xy,
+        )
+        for x, y in landings
+    ]
 
 
 def driving_hole(**overrides) -> HoleModel:

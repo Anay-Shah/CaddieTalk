@@ -16,10 +16,10 @@ from .baseline import strokes_to_hole_out
 from .conditions import Conditions, plays_like_distance_m
 from .geometry import HoleModel, hole_model_from_course
 from .optimize import Candidate, Recommendation, recommend
-from .player_model import ClubStats, default_bag
+from .player_model import ClubStats, Shot, ShotMetrics, default_bag, fit_bag, shot_metrics
 from .simulate import ShotOutcome, sample_landings, simulate_shot
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Candidate",
@@ -27,8 +27,12 @@ __all__ = [
     "Conditions",
     "HoleModel",
     "Recommendation",
+    "Shot",
+    "ShotMetrics",
     "ShotOutcome",
     "default_bag",
+    "fit_bag",
+    "shot_metrics",
     "hole_model_from_course",
     "plays_like_distance_m",
     "recommend",

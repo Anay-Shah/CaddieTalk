@@ -23,7 +23,21 @@ simulation:
 
 player_model:
   # Pseudo-shot weight given to the handicap-based prior when blending with real data.
+  # Higher means real shots take longer to override the generic starting numbers.
   prior_pseudo_shots: 8
+
+  # Mishits would otherwise poison a club's average: one topped 7 iron that goes 40 yards
+  # drags the mean down for every future recommendation. Shots shorter than this fraction
+  # of the club's median are treated as mishits and excluded from the fit.
+  #
+  # They are excluded rather than modelled because the engine's question is "where will
+  # this shot go if I hit it", and a duff is a different event, not the tail of the same
+  # distribution. Revisit if it turns out to flatter the player's numbers too much.
+  mishit_fraction: 0.55
+
+  # Below this many shots for a club, the fitted spread is ignored entirely and the prior
+  # is used — two shots cannot tell you anything trustworthy about dispersion.
+  min_shots_for_spread: 4
 
 baseline:
   # The strokes table describes a scratch-ish player. Amateurs take more shots from the
