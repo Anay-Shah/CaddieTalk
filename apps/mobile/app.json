@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "CaddieTalk",
+    "slug": "caddietalk",
+    "scheme": "caddietalk",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#071A2F",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#071A2F",
+      "resizeMode": "contain",
+      "image": "./assets/splash-icon.png"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.caddietalk.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "CaddieTalk uses your location to measure distances to the green and hazards while you play.",
+        "NSMicrophoneUsageDescription": "CaddieTalk uses your microphone so you can talk to your caddie."
+      }
+    },
+    "android": {
+      "package": "com.caddietalk.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#071A2F",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "RECORD_AUDIO"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CaddieTalk uses your location to measure distances to the green and hazards while you play."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
