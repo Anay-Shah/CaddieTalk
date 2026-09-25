@@ -105,10 +105,22 @@ export type Recommendation = {
   landing_sample: [number, number][];
 };
 
+export type Located = {
+  hole: number;
+  par: number | null;
+  to_front_yards: number;
+  to_middle_yards: number;
+  to_back_yards: number;
+  /** False when the fix is far from every hole — stale GPS, or not at the course. */
+  on_course: boolean;
+};
+
 export type RecommendInput = {
   course_id: string;
   hole: number;
   start?: [number, number];
+  /** Where the player actually is. Takes precedence over the other two. */
+  start_latlon?: [number, number];
   from_yards?: number;
   lie?: string;
   handicap?: number;
@@ -127,6 +139,10 @@ export const api = {
   courses: () => request<CourseSummary[]>("/courses"),
 
   course: (courseId: string) => request<Course>(`/courses/${courseId}`),
+
+  /** Which hole you're on and how far to the green. Cheap — safe to call as you walk. */
+  locate: (courseId: string, lat: number, lon: number) =>
+    request<Located>(`/courses/${courseId}/locate?lat=${lat}&lon=${lon}`),
 
   recommend: (input: RecommendInput) =>
     request<Recommendation>("/engine/recommend", {

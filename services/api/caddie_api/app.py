@@ -20,6 +20,7 @@ from caddie_engine.config import find_data_dir, to_metres, to_yards
 from caddie_engine.geometry import hole_model_from_dict
 from caddie_engine.optimize import recommend
 from caddie_engine.player_model import ClubStats, default_bag
+from course_import.project import Projector
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -55,6 +56,21 @@ def load_geojson(course_id: str) -> dict:
     return json.loads(path.read_text())
 
 
+@lru_cache(maxsize=8)
+def projector_for(course_id: str) -> Projector:
+    """Converts GPS lat/lon into the course's projected metres.
+
+    The phone reports lat/lon; the engine works in metres. Doing the conversion here rather
+    than in the app keeps a single source of truth for the projection — pyproj, the same
+    library that produced the geometry in the first place.
+    """
+    return Projector(load_course(course_id)["crs"])
+
+
+def to_course_xy(course_id: str, lat: float, lon: float) -> tuple[float, float]:
+    return projector_for(course_id).to_xy(lon, lat)
+
+
 class CourseSummary(BaseModel):
     course_id: str
     name: str
@@ -67,6 +83,11 @@ class RecommendRequest(BaseModel):
     start: tuple[float, float] | None = Field(
         default=None,
         description="Projected [x, y] position. Defaults to the tee.",
+    )
+    start_latlon: tuple[float, float] | None = Field(
+        default=None,
+        description="Where the player actually is, as [lat, lon] from the phone's GPS. "
+        "Takes precedence over `start` and `from_yards`.",
     )
     from_yards: float | None = Field(
         default=None,
@@ -145,6 +166,9 @@ def get_course_geojson(course_id: str) -> dict:
 
 
 def _start_position(hole, request: RecommendRequest) -> tuple[tuple[float, float], str]:
+    if request.start_latlon is not None:
+        lat, lon = request.start_latlon
+        return to_course_xy(request.course_id, lat, lon), request.lie
     if request.start is not None:
         return tuple(request.start), request.lie
     if request.from_yards is None:
@@ -168,6 +192,66 @@ def _bag(handicap: float) -> dict[str, ClubStats]:
     which point the advice becomes personal.
     """
     return default_bag(handicap)
+
+
+class LocateResponse(BaseModel):
+    hole: int
+    par: int | None
+    """Distances to the green, the way a yardage book gives them."""
+    to_front_yards: float
+    to_middle_yards: float
+    to_back_yards: float
+    on_course: bool
+    """False when the player is far from every hole — a stale fix, or not at the course."""
+
+
+# Beyond this from every hole, assume the fix is wrong rather than that the player is
+# standing in a car park 2 km away holding a 7 iron.
+ON_COURSE_LIMIT_M = 400.0
+
+
+@app.get("/courses/{course_id}/locate", response_model=LocateResponse)
+def locate(course_id: str, lat: float, lon: float) -> LocateResponse:
+    """Which hole the player is on, and their distances to the green.
+
+    Inferred from position rather than asked for, because a player walking down a fairway
+    should not have to tell the app where they are.
+    """
+    course = load_course(course_id)
+    x, y = to_course_xy(course_id, lat, lon)
+
+    best: tuple[float, dict] | None = None
+    for entry in course["holes"]:
+        line = entry.get("hole_line") or []
+        if not line:
+            continue
+        # Distance to the hole's centre-line, approximated by its vertices. Hole lines have
+        # few points, so this is both cheap and accurate enough to pick the right hole.
+        distance = min(math.dist((x, y), (px, py)) for px, py in line)
+        if best is None or distance < best[0]:
+            best = (distance, entry)
+
+    if best is None:
+        raise HTTPException(status_code=404, detail="Course has no hole lines")
+
+    distance_to_hole, entry = best
+    hole = hole_model_from_dict(entry)
+
+    green = entry.get("green") or []
+    if green:
+        distances = [math.dist((x, y), (gx, gy)) for gx, gy in green]
+        front, back = min(distances), max(distances)
+    else:
+        front = back = math.dist((x, y), hole.pin_xy)
+
+    return LocateResponse(
+        hole=hole.number,
+        par=hole.par,
+        to_front_yards=to_yards(front),
+        to_middle_yards=to_yards(math.dist((x, y), hole.pin_xy)),
+        to_back_yards=to_yards(back),
+        on_course=distance_to_hole <= ON_COURSE_LIMIT_M,
+    )
 
 
 @app.post("/engine/recommend", response_model=RecommendResponse)
@@ -206,10 +290,12 @@ def engine_recommend(request: RecommendRequest) -> RecommendResponse:
         )
 
     to_pin_m = math.dist(start_xy, hole.pin_xy)
+    # Below 1% is noise: it rounds to "0%" on screen and tells the player nothing they
+    # would act on. Reporting it would only crowd out the risks that matter.
     hazards = [
         HazardRisk(lie=lie_name, probability=probability)
         for lie_name, probability in sorted(result.best.hazard_probabilities.items())
-        if probability > 0
+        if probability >= 0.01
     ]
 
     # The app draws a cone, not a scatter plot, so a few hundred points is plenty and keeps

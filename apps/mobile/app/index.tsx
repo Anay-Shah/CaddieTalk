@@ -4,9 +4,14 @@
  * Map-dominant on purpose: the course fills the screen and the numbers float over it, so
  * you read the shot spatially rather than as a table. Everything shown here comes from the
  * engine; nothing is invented on the client.
+ *
+ * Position drives the screen. Which hole you're on is inferred from where you're standing
+ * rather than asked for, and the yardages follow you down the fairway. The arrows are there
+ * for when you want to look ahead — taking one hands control back to you until you tap the
+ * GPS chip to resume.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -19,24 +24,51 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 
-import { api, ApiError, API_BASE_URL, type Course, type Recommendation } from "../src/api/client";
+import {
+  api,
+  ApiError,
+  API_BASE_URL,
+  type Course,
+  type Located,
+  type Recommendation,
+} from "../src/api/client";
 import { HoleMap } from "../src/components/HoleMap";
-import { GhostButton, GlassPanel, IconButton, OutcomeBar, PrimaryButton, RiskChip } from "../src/components/ui";
+import {
+  GhostButton,
+  GlassPanel,
+  IconButton,
+  OutcomeBar,
+  PrimaryButton,
+  RiskChip,
+} from "../src/components/ui";
+import { GOOD_ACCURACY_M, metresBetween, useLocation } from "../src/hooks/useLocation";
 import { colors, font, glass, radius, type } from "../src/theme";
 
 const HANDICAP = 15;
 
+/**
+ * How far you have to walk before the engine re-simulates.
+ *
+ * Distances update continuously because they're just geometry. A recommendation is
+ * thousands of simulated shots, and it doesn't meaningfully change over a few paces.
+ */
+const RESIMULATE_AFTER_M = 10;
+
 export default function HoleScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const gps = useLocation();
 
   const [course, setCourse] = useState<Course | null>(null);
   const [holeNumber, setHoleNumber] = useState(1);
+  const [located, setLocated] = useState<Located | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
+  const [followingGps, setFollowingGps] = useState(true);
 
-  // Load whichever course has been imported. Course selection arrives with round setup.
+  const lastSimulatedFrom = useRef<{ latitude: number; longitude: number } | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -57,8 +89,32 @@ export default function HoleScreen() {
     };
   }, []);
 
+  const usingGps = Boolean(gps.coords && located?.on_course);
+
+  // Distances follow you continuously — this is cheap geometry, not a simulation.
+  useEffect(() => {
+    if (!course || !gps.coords) return;
+    let cancelled = false;
+
+    api
+      .locate(course.course_id, gps.coords.latitude, gps.coords.longitude)
+      .then((next) => {
+        if (cancelled) return;
+        setLocated(next);
+        if (followingGps && next.on_course) setHoleNumber(next.hole);
+      })
+      .catch(() => {
+        // A failed locate just means the distances go stale for a beat; the last
+        // recommendation is still on screen and still correct for where it was taken.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [course, gps.coords, followingGps]);
+
   const loadRecommendation = useCallback(
-    async (courseId: string, hole: number) => {
+    async (courseId: string, hole: number, from: { latitude: number; longitude: number } | null) => {
       setThinking(true);
       setError(null);
       try {
@@ -67,8 +123,10 @@ export default function HoleScreen() {
           hole,
           handicap: HANDICAP,
           samples: 2000,
+          ...(from ? { start_latlon: [from.latitude, from.longitude] as [number, number] } : {}),
         });
         setRecommendation(next);
+        lastSimulatedFrom.current = from;
       } catch (e) {
         setError(e instanceof ApiError ? e.message : String(e));
         setRecommendation(null);
@@ -79,21 +137,35 @@ export default function HoleScreen() {
     [],
   );
 
+  // Re-simulate when the hole changes, or when you've walked far enough to matter.
   useEffect(() => {
-    if (course) loadRecommendation(course.course_id, holeNumber);
-  }, [course, holeNumber, loadRecommendation]);
+    if (!course) return;
+
+    const from = usingGps && gps.coords ? gps.coords : null;
+    const previous = lastSimulatedFrom.current;
+
+    const holeChanged = recommendation?.hole !== holeNumber;
+    const movedEnough =
+      from && previous ? metresBetween(previous, from) >= RESIMULATE_AFTER_M : from !== previous;
+
+    if (holeChanged || movedEnough) {
+      loadRecommendation(course.course_id, holeNumber, from);
+    }
+  }, [course, holeNumber, usingGps, gps.coords, recommendation?.hole, loadRecommendation]);
 
   const hole = course?.holes.find((h) => h.number === holeNumber) ?? null;
   const holeCount = course?.holes.length ?? 18;
-
   const trouble = (recommendation?.hazards ?? []).reduce((sum, h) => sum + h.probability, 0);
 
-  // Keep the hole clear of the header and the card, so the ball is never hidden behind
-  // the numbers describing the shot you're about to hit from it.
   const mapInset = useMemo(
     () => ({ top: insets.top + 84, bottom: insets.bottom + 300 }),
     [insets.top, insets.bottom],
   );
+
+  const stepHole = (delta: number) => {
+    setFollowingGps(false);
+    setHoleNumber((n) => Math.min(holeCount, Math.max(1, n + delta)));
+  };
 
   if (error && !course) {
     return (
@@ -115,20 +187,10 @@ export default function HoleScreen() {
 
   return (
     <View style={styles.root}>
-      <HoleMap
-        hole={hole}
-        recommendation={recommendation}
-        width={width}
-        height={height}
-        inset={mapInset}
-      />
+      <HoleMap hole={hole} recommendation={recommendation} width={width} height={height} inset={mapInset} />
 
-      {/* header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <IconButton
-          label="Previous hole"
-          onPress={() => setHoleNumber((n) => Math.max(1, n - 1))}
-        >
+        <IconButton label="Previous hole" onPress={() => stepHole(-1)}>
           <Chevron direction="left" />
         </IconButton>
 
@@ -137,26 +199,40 @@ export default function HoleScreen() {
           <View style={styles.metaRow}>
             <Text style={type.meta}>PAR {hole.par ?? "?"}</Text>
             <View style={styles.dot} />
-            <Text style={type.meta}>{course.name.toUpperCase()}</Text>
+            <Text style={type.meta} numberOfLines={1}>
+              {course.name.toUpperCase()}
+            </Text>
           </View>
         </View>
 
-        <IconButton
-          label="Next hole"
-          onPress={() => setHoleNumber((n) => Math.min(holeCount, n + 1))}
-        >
+        <IconButton label="Next hole" onPress={() => stepHole(1)}>
           <Chevron direction="right" />
         </IconButton>
       </View>
 
-      {/* the recommendation */}
+      <GpsChip
+        gps={gps}
+        located={located}
+        following={followingGps}
+        top={insets.top + 82}
+        onResume={() => setFollowingGps(true)}
+      />
+
+      {located?.on_course ? (
+        <GreenDistances located={located} top={insets.top + 82} />
+      ) : null}
+
       <GlassPanel style={[styles.card, { bottom: insets.bottom + 104 }]}>
         <View style={styles.cardTop}>
           <View>
             <Text style={type.label}>TO PIN</Text>
             <View style={styles.heroRow}>
               <Text style={styles.hero}>
-                {recommendation ? Math.round(recommendation.to_pin_yards) : "—"}
+                {located?.on_course
+                  ? Math.round(located.to_middle_yards)
+                  : recommendation
+                    ? Math.round(recommendation.to_pin_yards)
+                    : "—"}
               </Text>
               <Text style={styles.heroUnit}>YDS</Text>
             </View>
@@ -193,7 +269,11 @@ export default function HoleScreen() {
 
             <OutcomeBar green={1 - trouble} safe={0} trouble={trouble} />
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chips}
+            >
               {(recommendation?.hazards ?? []).map((h) => (
                 <RiskChip key={h.lie} lie={h.lie} probability={h.probability} />
               ))}
@@ -205,12 +285,98 @@ export default function HoleScreen() {
         </View>
       </GlassPanel>
 
-      {/* actions */}
       <View style={[styles.actions, { bottom: insets.bottom + 20 }]}>
         <PrimaryButton label="LOG SHOT" style={{ flex: 1 }} icon={<Plus />} />
         <GhostButton label="TALK" accent style={{ width: 118 }} icon={<Mic />} />
       </View>
     </View>
+  );
+}
+
+/** Front, middle, back — the three numbers a yardage book gives you. */
+function GreenDistances({ located, top }: { located: Located; top: number }) {
+  const rows: [string, number, boolean][] = [
+    ["BACK", located.to_back_yards, false],
+    ["MID", located.to_middle_yards, true],
+    ["FRNT", located.to_front_yards, false],
+  ];
+  return (
+    <View style={[styles.greenPanel, { top }]}>
+      {rows.map(([label, yards, highlight]) => (
+        <View key={label} style={styles.greenRow}>
+          <Text style={styles.greenLabel}>{label}</Text>
+          <Text style={[styles.greenValue, highlight && { color: colors.accent }]}>
+            {Math.round(yards)}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/**
+ * Whether the numbers can be trusted, stated plainly.
+ *
+ * A yardage from a 40-metre fix is worse than no yardage, because you'd act on it. So a
+ * poor fix is flagged in red — the same colour as anything else that can cost you a shot.
+ */
+function GpsChip({
+  gps,
+  located,
+  following,
+  top,
+  onResume,
+}: {
+  gps: ReturnType<typeof useLocation>;
+  located: Located | null;
+  following: boolean;
+  top: number;
+  onResume: () => void;
+}) {
+  const poorFix = gps.accuracyM !== null && gps.accuracyM > GOOD_ACCURACY_M;
+  const offCourse = gps.status === "tracking" && located !== null && !located.on_course;
+
+  let text: string;
+  let tone: "good" | "bad" | "idle";
+
+  if (gps.status === "denied" || gps.status === "unavailable") {
+    text = "NO GPS · FROM THE TEE";
+    tone = "idle";
+  } else if (gps.status === "starting") {
+    text = "FINDING YOU…";
+    tone = "idle";
+  } else if (offCourse) {
+    text = "NOT AT THE COURSE";
+    tone = "idle";
+  } else if (poorFix) {
+    text = `WEAK FIX ±${Math.round(gps.accuracyM ?? 0)}M`;
+    tone = "bad";
+  } else if (!following) {
+    text = "TAP TO FOLLOW GPS";
+    tone = "idle";
+  } else {
+    text = "GPS";
+    tone = "good";
+  }
+
+  const colour =
+    tone === "good" ? colors.accent : tone === "bad" ? colors.signalSoft : colors.textMuted;
+  const dot = tone === "good" ? colors.accent : tone === "bad" ? colors.signal : colors.textFaint;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={following ? "Following GPS" : "Resume following GPS"}
+      onPress={onResume}
+      style={[
+        styles.gpsChip,
+        { top },
+        tone === "bad" && { borderColor: glass.signalBorder, backgroundColor: glass.signalWash },
+      ]}
+    >
+      <View style={[styles.gpsDot, { backgroundColor: dot }]} />
+      <Text style={[styles.gpsText, { color: colour }]}>{text}</Text>
+    </Pressable>
   );
 }
 
@@ -286,13 +452,49 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: "#45688A" },
 
-  card: {
+  gpsChip: {
     position: "absolute",
-    left: 14,
-    right: 14,
-    padding: 18,
-    gap: 14,
+    right: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: glass.borderSoft,
+    backgroundColor: "rgba(12,39,64,0.8)",
   },
+  gpsDot: { width: 6, height: 6, borderRadius: 3 },
+  gpsText: { fontFamily: font.bodyBold, fontSize: 10, letterSpacing: 1.3 },
+
+  greenPanel: {
+    position: "absolute",
+    left: 18,
+    gap: 2,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: glass.borderSoft,
+    backgroundColor: "rgba(12,39,64,0.8)",
+  },
+  greenRow: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  greenLabel: {
+    fontFamily: font.bodyBold,
+    fontSize: 10,
+    letterSpacing: 0.9,
+    color: colors.textMuted,
+    width: 36,
+  },
+  greenValue: {
+    fontFamily: font.displaySemi,
+    fontSize: 15,
+    color: colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+
+  card: { position: "absolute", left: 14, right: 14, padding: 18, gap: 14 },
   cardTop: { flexDirection: "row", alignItems: "flex-end" },
   heroRow: { flexDirection: "row", alignItems: "baseline", gap: 6 },
   hero: { ...type.hero, fontVariant: ["tabular-nums"] },
@@ -326,11 +528,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
 
-  actions: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    flexDirection: "row",
-    gap: 12,
-  },
+  actions: { position: "absolute", left: 14, right: 14, flexDirection: "row", gap: 12 },
 });
