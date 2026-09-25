@@ -144,6 +144,17 @@ export const api = {
   locate: (courseId: string, lat: number, lon: number) =>
     request<Located>(`/courses/${courseId}/locate?lat=${lat}&lon=${lon}`),
 
+  /**
+   * A lat/lon on a given hole, for testing off the course. Development only.
+   *
+   * Returning a real coordinate rather than a shortcut is deliberate: the simulated
+   * player then travels the identical path as a real fix.
+   */
+  devPosition: (courseId: string, hole: number, fromYards: number, offsetYards: number) =>
+    request<{ lat: number; lon: number }>(
+      `/dev/position?course_id=${courseId}&hole=${hole}&from_yards=${fromYards}&offset_yards=${offsetYards}`,
+    ),
+
   recommend: (input: RecommendInput) =>
     request<Recommendation>("/engine/recommend", {
       method: "POST",

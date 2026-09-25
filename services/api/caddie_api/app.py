@@ -254,6 +254,52 @@ def locate(course_id: str, lat: float, lon: float) -> LocateResponse:
     )
 
 
+class DevPosition(BaseModel):
+    lat: float
+    lon: float
+
+
+@app.get("/dev/position", response_model=DevPosition)
+def dev_position(
+    course_id: str,
+    hole: int,
+    from_yards: float = 150.0,
+    offset_yards: float = 0.0,
+) -> DevPosition:
+    """A lat/lon somewhere on a hole, for testing without standing on a golf course.
+
+    Development only. It exists so the simulated player flows through exactly the same path
+    as a real fix — the app receives lat/lon and knows nothing about where it came from, so
+    exercising this exercises the real tracking code rather than a parallel copy of it.
+
+    `offset_yards` steps sideways off the hole line (positive right) so aiming and
+    dispersion can be tested from a position that isn't dead centre.
+    """
+    course = load_course(course_id)
+    entry = next((h for h in course["holes"] if h["number"] == hole), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Hole {hole} not found")
+
+    model = hole_model_from_dict(entry)
+    tee, pin = model.tee_xy, model.pin_xy
+
+    dx, dy = pin[0] - tee[0], pin[1] - tee[1]
+    total = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / total, dy / total
+
+    back = min(to_metres(from_yards), total)
+    x = pin[0] - ux * back
+    y = pin[1] - uy * back
+
+    # Right of the line of play is the direction 90 degrees clockwise from it.
+    offset = to_metres(offset_yards)
+    x += uy * offset
+    y -= ux * offset
+
+    lon, lat = projector_for(course_id).to_lonlat(x, y)
+    return DevPosition(lat=lat, lon=lon)
+
+
 @app.post("/engine/recommend", response_model=RecommendResponse)
 def engine_recommend(request: RecommendRequest) -> RecommendResponse:
     course = load_course(request.course_id)

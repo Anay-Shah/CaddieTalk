@@ -41,6 +41,7 @@ import {
   PrimaryButton,
   RiskChip,
 } from "../src/components/ui";
+import { DevPanel, type SimulatedFix } from "../src/dev/DevPanel";
 import { GOOD_ACCURACY_M, metresBetween, useLocation } from "../src/hooks/useLocation";
 import { colors, font, glass, radius, type } from "../src/theme";
 
@@ -57,7 +58,15 @@ const RESIMULATE_AFTER_M = 10;
 export default function HoleScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const gps = useLocation();
+
+  const [simulated, setSimulated] = useState<SimulatedFix>(null);
+
+  // A simulated fix stands in for the real one entirely, so every downstream behaviour is
+  // the on-course behaviour. Nothing below here knows which it got.
+  const realGps = useLocation(!simulated);
+  const gps = simulated
+    ? { coords: simulated, accuracyM: 4, status: "tracking" as const, error: null }
+    : realGps;
 
   const [course, setCourse] = useState<Course | null>(null);
   const [holeNumber, setHoleNumber] = useState(1);
@@ -68,6 +77,13 @@ export default function HoleScreen() {
   const [followingGps, setFollowingGps] = useState(true);
 
   const lastSimulatedFrom = useRef<{ latitude: number; longitude: number } | null>(null);
+
+  /**
+   * Responses can arrive out of order — a request made two paces ago may land after one
+   * made just now. Without this the yardage walks backwards as you walk forwards, which
+   * looks exactly like a broken rangefinder.
+   */
+  const locateSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,11 +111,13 @@ export default function HoleScreen() {
   useEffect(() => {
     if (!course || !gps.coords) return;
     let cancelled = false;
+    const seq = ++locateSeq.current;
 
     api
       .locate(course.course_id, gps.coords.latitude, gps.coords.longitude)
       .then((next) => {
-        if (cancelled) return;
+        // Drop anything a newer request has already superseded.
+        if (cancelled || seq !== locateSeq.current) return;
         setLocated(next);
         if (followingGps && next.on_course) setHoleNumber(next.hole);
       })
@@ -157,6 +175,13 @@ export default function HoleScreen() {
   const holeCount = course?.holes.length ?? 18;
   const trouble = (recommendation?.hazards ?? []).reduce((sum, h) => sum + h.probability, 0);
 
+  // How much wind and elevation move the number. Null when they don't, which is the case
+  // until live weather is wired in — and a "plays like" equal to the yardage is noise.
+  const playsLikeDelta =
+    recommendation && Math.abs(recommendation.plays_like_yards - recommendation.to_pin_yards) >= 2
+      ? recommendation.plays_like_yards - recommendation.to_pin_yards
+      : null;
+
   const mapInset = useMemo(
     () => ({ top: insets.top + 84, bottom: insets.bottom + 300 }),
     [insets.top, insets.bottom],
@@ -210,13 +235,27 @@ export default function HoleScreen() {
         </IconButton>
       </View>
 
-      <GpsChip
-        gps={gps}
-        located={located}
-        following={followingGps}
-        top={insets.top + 82}
-        onResume={() => setFollowingGps(true)}
-      />
+      <View style={[styles.statusRow, { top: insets.top + 82 }]}>
+        {__DEV__ ? (
+          <DevPanel
+            courseId={course.course_id}
+            holeCount={holeCount}
+            active={simulated !== null}
+            onFix={(fix) => {
+              setSimulated(fix);
+              setFollowingGps(true);
+            }}
+            onClear={() => setSimulated(null)}
+          />
+        ) : null}
+        <GpsChip
+          gps={gps}
+          located={located}
+          following={followingGps}
+          simulated={simulated !== null}
+          onResume={() => setFollowingGps(true)}
+        />
+      </View>
 
       {located?.on_course ? (
         <GreenDistances located={located} top={insets.top + 82} />
@@ -240,10 +279,16 @@ export default function HoleScreen() {
 
           <View style={{ flex: 1 }} />
 
-          {recommendation ? (
+          {/*
+            Only worth the space when conditions actually change the number. Comparing
+            against the recommendation's own distance rather than the live one keeps both
+            sides of the comparison from the same moment — otherwise walking makes them
+            disagree and the card contradicts itself.
+          */}
+          {playsLikeDelta !== null ? (
             <View style={styles.playsLike}>
               <Text style={type.label}>PLAYS LIKE</Text>
-              <Text style={type.bigNumber}>{Math.round(recommendation.plays_like_yards)}</Text>
+              <Text style={type.bigNumber}>{Math.round(recommendation!.plays_like_yards)}</Text>
             </View>
           ) : null}
         </View>
@@ -324,13 +369,13 @@ function GpsChip({
   gps,
   located,
   following,
-  top,
+  simulated,
   onResume,
 }: {
   gps: ReturnType<typeof useLocation>;
   located: Located | null;
   following: boolean;
-  top: number;
+  simulated: boolean;
   onResume: () => void;
 }) {
   const poorFix = gps.accuracyM !== null && gps.accuracyM > GOOD_ACCURACY_M;
@@ -339,7 +384,11 @@ function GpsChip({
   let text: string;
   let tone: "good" | "bad" | "idle";
 
-  if (gps.status === "denied" || gps.status === "unavailable") {
+  if (simulated) {
+    // Never dressed up as a real fix — the SIM tab beside this says where it came from.
+    text = following ? "SIMULATED" : "TAP TO FOLLOW";
+    tone = "idle";
+  } else if (gps.status === "denied" || gps.status === "unavailable") {
     text = "NO GPS · FROM THE TEE";
     tone = "idle";
   } else if (gps.status === "starting") {
@@ -370,7 +419,6 @@ function GpsChip({
       onPress={onResume}
       style={[
         styles.gpsChip,
-        { top },
         tone === "bad" && { borderColor: glass.signalBorder, backgroundColor: glass.signalWash },
       ]}
     >
@@ -452,9 +500,14 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: "#45688A" },
 
-  gpsChip: {
+  statusRow: {
     position: "absolute",
     right: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  gpsChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
