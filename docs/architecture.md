@@ -105,7 +105,9 @@ Feature IDs are referenced in the build plan (section 13).
 | F-06 | Strategy engine | Monte Carlo simulation over clubs × aim points → best club, best aim point, expected score, hazard risk. |
 | F-07 | Conditions | Wind (speed/direction) and elevation change applied to "plays-like" distance and lateral drift. |
 | F-08 | Text caddie | Chat with an LLM caddie that receives full situational context and can call engine tools. |
-| F-09 | Voice caddie (push-to-talk) | Hold a button (or earbud tap), speak, hear the caddie reply out loud. |
+| F-17 | **Voice caddie (live call)** | Headphones in, talk back and forth naturally with interruptions, like a phone call with a caddie walking beside you. **The primary voice experience.** |
+| F-25 | **Caddie avatar** | A minimal 3D-feeling silhouette in a golf cap that listens, speaks, and turns to look at whatever it is talking about. |
+| F-09 | Voice caddie (push-to-talk) | Hold a button, speak, hear the reply. The **fallback** when there are no headphones, no signal, or company who would rather you didn't talk to your phone. |
 | F-10 | Pre-round game plan | Generate a hole-by-hole plan before the round and cache it on the phone for bad reception. |
 
 ### P1 — Should have (next up)
@@ -123,8 +125,7 @@ Feature IDs are referenced in the build plan (section 13).
 
 | ID | Feature | Description |
 |----|---------|-------------|
-| F-17 | Real-time speech-to-speech | Natural back-and-forth with interruptions using a speech-to-speech model (e.g. Amazon Nova Sonic on Bedrock). |
-| F-18 | Hands-free wake word | "Hey caddie" instead of push-to-talk. |
+| F-18 | Hands-free wake word | "Hey caddie" to start a call without touching the phone. |
 | F-19 | Auto shot detection | Detect swings from the phone accelerometer + GPS so logging is automatic. |
 | F-20 | Range swing analysis | Film swings at the range; pose estimation compares good vs. bad swings *of your own*. |
 | F-21 | Voice shot logging | "7 iron, thin, went right" → structured shot data. |
@@ -341,24 +342,43 @@ debugging and building an evaluation set.
 
 ### 7.6 Voice
 
-**P0 (push-to-talk pipeline):**
-- Speech-to-text: **on-device only.** Free, fast, and works on both platforms. A streaming
-  Amazon Transcribe fallback was deliberately cut from P0 — it means building a second
-  audio pipeline for a case that may never fire. Revisit only if field testing shows
-  on-device recognition is genuinely inadequate. See `DECISIONS.md` (D-003).
-- Text-to-speech: Amazon Polly (neural or generative voice), returned as audio from the
-  Caddie Lambda (base64 or a short-lived S3 presigned URL).
-- Push-to-talk rather than always-listening: wind noise, playing partners talking, and
-  battery life make always-on painful on a course.
-- No long-running server needed for P0 — everything is request/response through Lambda.
+**The primary experience is a call, not a walkie-talkie.** You put headphones in, you both
+just talk, and you can cut the caddie off mid-sentence. This is what makes it feel like
+someone walking beside you rather than a device you operate. See `DECISIONS.md` (D-007).
 
-**P2 (real-time speech-to-speech):**
-- Use a bidirectional speech-to-speech model (e.g. Amazon Nova Sonic on Bedrock — check
-  current versions and tool-use support at build time).
-- This requires a long-lived streaming connection, which Lambda is not built for, so this
-  is where a small container service on **ECS Fargate** comes in. It holds the session,
-  streams audio both ways, and calls the same engine tools.
-- Only run it when needed; Fargate and load balancers cost money even when idle.
+**Live call (F-17, primary):**
+- A bidirectional speech-to-speech model holds the conversation (e.g. Amazon Nova Sonic on
+  Bedrock — check current versions and tool-use support at build time).
+- This needs a connection that stays open for minutes, which Lambda cannot do: Lambda is
+  request-and-response only. A small container service holds the session, streams audio
+  both ways, and calls the same engine tools as the text caddie.
+- **Runs on localhost during development** (`make serve-voice`), so the whole feature can
+  be built and played with before deciding anything about hosting. See `DECISIONS.md`
+  (D-008).
+- The session is bounded: you start a call, talk, and end it. It is not always-listening —
+  wind noise, playing partners, and battery make that painful on a course, and a call you
+  deliberately start is also the honest answer to the Rules of Golf question in section 16.
+
+**Push-to-talk (F-09, fallback):**
+- On-device speech recognition, one request to the caddie, speech back via Amazon Polly.
+- Pure request/response, so it works wherever the text caddie works.
+- Kept because it degrades gracefully: no headphones, poor signal, or playing partners who
+  would rather you didn't hold a conversation with your phone.
+- Speech-to-text is **on-device only**; a streaming Amazon Transcribe fallback was cut from
+  P0 as a second audio pipeline for a case that may never fire. See `DECISIONS.md` (D-003).
+
+**The avatar (F-25):**
+- A minimal silhouette in a golf cap, rim-lit in butter yellow on marine blue. Not a
+  photoreal person, and deliberately not a face — it reads as a presence, not an uncanny
+  human.
+- It listens (head tilts toward you), thinks (glances away), and speaks (motion tracking
+  the audio envelope). The detail that matters most: **it turns to look at whatever it is
+  talking about** — at the green when it gives you the number, at the bunker when it warns
+  you off the pin. That is what sells "standing beside you"; mouth animation is not.
+- Rendering approach is open. A rigged 2.5D silhouette gets the same look-around at a
+  fraction of the GPU cost of real 3D, and a flat-shaded silhouette has no lighting or
+  depth cues to lose by faking it. Battery over four hours is the deciding constraint, not
+  fidelity. Start 2.5D; go real-3D only if it feels flat in the hand.
 
 ### 7.7 Vision (P1)
 
@@ -471,7 +491,7 @@ All endpoints require a Cognito JWT.
 | Cheap/fast tasks (voice shot-log parsing, summaries) | Claude Haiku (e.g. Claude Haiku 4.5) | Lower cost and latency. |
 | Speech-to-text | On-device recognition | Free and fast; no cloud STT in P0. |
 | Text-to-speech | Amazon Polly | Simple, cheap, stays in AWS. |
-| Real-time speech-to-speech (P2) | Amazon Nova Sonic (or current equivalent) | Natural back-and-forth with interruptions. |
+| **Live voice conversation** | Amazon Nova Sonic (or current equivalent) | Natural back-and-forth with interruptions. The primary voice path (F-17). |
 | Strategy | **No ML model** — Monte Carlo simulation + player statistics | Deterministic, explainable, and testable. |
 
 Check exact Bedrock model IDs and regional availability in the Bedrock console at build
@@ -494,7 +514,7 @@ Principle: use a service only where it solves a real problem, and be able to exp
 | **Polly** | Text-to-speech | Managed, cheap, trivial to wire. |
 | **Cognito** | Auth | Keeps the API — and therefore Bedrock spend — private. Free at this scale. |
 | **CloudWatch** | Logs, metrics, alarms | Track latency, errors, Bedrock token usage. |
-| **ECS Fargate** (P2 only) | Real-time voice server | Long-lived streaming connections don't fit Lambda. Deferred. |
+| **ECS Fargate** *(decision deferred)* | Live voice server | Long-lived streaming connections don't fit Lambda. Bills while idle (~$25–30/mo with a load balancer), so whether and how to run it is settled at M4 against a working system — possibly only during rounds. |
 
 ### Services we are deliberately NOT using
 
@@ -605,6 +625,23 @@ locally and reused from notebooks, Lambda, and the P2 voice server.
 Each milestone ends with passing tests and something demoable. Build in order — the AI
 layer depends on the engine being trustworthy.
 
+### Revised order (2026-09-25)
+
+**Everything runs on localhost until the app works end to end.** The original plan put the
+AWS backend (M4) before the mobile app, which would mean paying for and maintaining
+infrastructure while the product is still taking shape. Instead:
+
+```
+M0 ✅  M1 ✅  M2 ✅  M3 ✅  →  M5  →  M6  →  M7  →  M4  →  M8+
+                                └── all against a local dev server ──┘
+```
+
+M5, M6, and M7 talk to a Python dev server on the builder's laptop over wifi. The app
+points at one base URL, so switching it to a deployed backend later is a config change,
+not a rewrite. **M4 moves after M7**, and begins with a cost and architecture review
+against a system that actually exists rather than a guess about one that doesn't. See
+`DECISIONS.md` (D-008).
+
 ### M0 — Project setup
 - Create the monorepo structure above, linting, formatting, and test runners.
 - GitHub Actions workflow running Python tests.
@@ -640,8 +677,11 @@ still the unsolved problem.
 - Synthetic shot generator for tests and demos.
 - **Done when:** feeding synthetic shots recovers the known distributions.
 
-### M4 — Backend on AWS
-- **Step zero: AWS Budgets alerts at $10 / $25 / $50, and confirm credits cover Bedrock.**
+### M4 — Backend on AWS *(deferred until after M7)*
+- **Step zero: a cost and architecture review** against the working local system. The live
+  voice service is the open question: it needs a container that bills while idle, so decide
+  what actually gets deployed, and whether it runs only during rounds.
+- **Then: AWS Budgets alerts at $10 / $25 / $50, and confirm credits cover Bedrock.**
   Nothing else in this milestone starts until that is done.
 - CDK: Cognito, API Gateway, DynamoDB tables, S3 bucket, the container image with the
   engine + caddie functions, data API Lambdas, CloudWatch alarms.
@@ -668,12 +708,16 @@ still the unsolved problem.
   every push are the most likely way to burn the credit budget by accident.
 - **Done when:** the caddie gives grounded, concise advice across the eval set.
 
-### M7 — Voice caddie (F-09)
-- Push-to-talk UI (button + earbud media-button if feasible).
-- On-device STT with Transcribe fallback.
-- Polly TTS returned from the caddie turn.
-- Measure and log end-to-end latency.
-- **Done when:** a spoken question gets a spoken, grounded answer in under ~4 seconds.
+### M7 — Voice caddie (F-17, F-25, F-09)
+- Local realtime voice server: holds the session, streams audio both ways, calls the same
+  engine tools as the text caddie.
+- Call UI: the avatar, live transcript, mute / end / show-hole controls.
+- Avatar states — idle, listening, thinking, speaking — plus turning to look at whatever is
+  being discussed.
+- Push-to-talk kept as the fallback path (F-09).
+- Measure and log end-to-end latency; a call only feels like a call under ~1 second.
+- **Done when:** you can walk a hole with headphones in, talk to the caddie, interrupt it,
+  and have it answer with real numbers from the engine.
 
 ### M8 — Lie photo analysis (F-11)
 - Presigned upload, `assess_lie` tool, lie modifier mapping, recomputed recommendation.
@@ -688,7 +732,7 @@ still the unsolved problem.
 
 ### M10+ — Stretch (P2)
 - Risk mode and heatmap view (F-15, F-16) if not already done.
-- Real-time speech-to-speech on Fargate (F-17), wake word (F-18).
+- Wake word (F-18).
 - Auto shot detection (F-19), voice shot logging (F-21).
 - Range swing analysis (F-20), watch app (F-22), green reading (F-23), personalities (F-24).
 

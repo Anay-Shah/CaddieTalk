@@ -4,8 +4,12 @@ A plain-language log of what actually exists so far. Newest entries at the top.
 For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 `docs/architecture.md`.
 
-**Current milestone:** M4 — Backend on AWS (not started; first milestone that spends money)
+**Current milestone:** M5 — Mobile app (in progress)
 **Overall:** M0–M3 complete. The whole brain of the app works locally.
+
+> **Plan changed 2026-09-25.** The order is now **M5 → M6 → M7 → M4**. Everything gets
+> built and working on localhost first; AWS comes after, starting with a cost review
+> against a system that actually exists. Still $0 spent.
 
 ---
 
@@ -17,14 +21,48 @@ For *why* decisions were made, see `DECISIONS.md`. For the full plan, see
 | M1 | Import a real course from OpenStreetMap into clean per-hole geometry | ✅ Done |
 | M2 | Strategy engine — Monte Carlo simulation and aim optimization | ✅ Done |
 | M3 | Player model — per-club distance and dispersion | ✅ Done |
-| M4 | Backend on AWS (first milestone that spends money) | ⬜ Next |
-| M5 | Mobile app v1 — map, GPS, distances, shot logging | ⬜ Not started |
-| M6 | Text caddie — Bedrock agent with tools | ⬜ Not started |
-| M7 | Voice caddie — push-to-talk | ⬜ Not started |
+| M5 | Mobile app v1 — map, GPS, distances, shot logging | 🔨 In progress |
+| M6 | Text caddie — agent with engine tools | ⬜ Not started |
+| M7 | **Voice caddie — live call with the avatar** | ⬜ Not started |
+| M4 | Backend on AWS — *moved after M7* | ⬜ Deferred |
 | M8 | Lie photo analysis | ⬜ Not started |
 | M9 | Post-round review and practice plans | ⬜ Not started |
 
 **Money spent on AWS so far: $0.** Nothing is deployed. M1–M3 run entirely on your laptop.
+
+---
+
+## 2026-09-25 — Plan change: the caddie is a call, and AWS waits
+
+Two decisions, both recorded in `DECISIONS.md`.
+
+**The voice caddie becomes a phone call, not a walkie-talkie (D-007).** The original plan
+had push-to-talk as the main experience: hold a button, speak, release, wait a few seconds,
+listen. That's a device you operate. What this product is actually trying to be is someone
+walking beside you — headphones in, you both just talk, and you can cut them off
+mid-sentence.
+
+So the live conversation moves from a stretch goal to a core feature, and gets a face: a
+minimal silhouette in a golf cap that listens, speaks, and **turns to look at whatever it's
+talking about** — at the green when it gives you the number, at the bunker when it warns
+you off the pin. Push-to-talk survives as the fallback for no headphones or no signal.
+
+There's a real cost to this. A live conversation needs a connection held open for minutes,
+which Lambda can't do, so it needs a server that bills even when nobody's using it — around
+$25–30 a month against a $100 credit. Which leads to the second decision.
+
+**Everything gets built on localhost first (D-008).** The order is now **M5 → M6 → M7 →
+M4** instead of M4 first. The app, the text caddie, and the voice caddie all talk to a
+Python server running on the laptop over wifi.
+
+Nothing is wasted — the same server code gets wrapped for the cloud later, and having a
+local server is worth it permanently, because deploying every time you want to test a
+change is miserable. The real win is that M4 now *starts* with a cost review of a system
+that exists, rather than guesses about one that doesn't.
+
+**The design is settled** and on the canvas: marine blue surfaces, butter yellow for
+anything you tap, bright red reserved for danger and a live mic. Five screens — hole view,
+shot logging, the call, push-to-talk, and a style sheet.
 
 ---
 

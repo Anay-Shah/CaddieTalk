@@ -24,6 +24,9 @@ dev = [
     "ruff>=0.5",
     "black>=24.0",
     "matplotlib>=3.8",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "httpx>=0.27",
 ]
 infra = [
     "aws-cdk-lib>=2.140",
@@ -34,7 +37,7 @@ infra = [
 # Each service keeps its own directory, but they install into one environment so that
 # `python -m course_import` works from anywhere. `infra` is deliberately excluded — it is
 # a CDK app, not a library, and is run from its own directory.
-where = ["services/engine", "services/course_import"]
+where = ["services/engine", "services/course_import", "services/api"]
 
 [tool.pytest.ini_options]
 # Services are imported by name without installation; keep each service's root on the path.

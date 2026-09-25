@@ -113,3 +113,58 @@ recommendations.
 
 Refine later against real logged rounds. The rule that stays: baseline numbers live in data
 files with sourcing notes, never hard-coded in engine code.
+
+---
+
+## D-007 — The live call is the primary voice experience, not push-to-talk
+
+**Date:** 2026-09-25 · **Status:** accepted · supersedes the P2 placement of F-17
+
+Push-to-talk was P0 and real-time speech-to-speech (F-17) was a P2 stretch goal. That is
+backwards relative to what this product is trying to be.
+
+Push-to-talk is a walkie-talkie: hold, speak, release, wait several seconds, listen. It is
+a device you operate. A live call — headphones in, both parties talking, interruption
+allowed — is a person walking beside you. The second is the actual pitch of the product,
+and the difference is not incremental.
+
+F-17 moves to P0 and becomes the M7 deliverable. F-09 push-to-talk stays, demoted to the
+fallback path: no headphones, poor signal, or playing partners who would rather you didn't
+hold a conversation with your phone. It also costs almost nothing to keep, since it reuses
+the text caddie's request/response path.
+
+Added alongside it: **F-25, the caddie avatar** — a minimal capped silhouette that listens,
+speaks, and turns to look at what it is discussing. Deliberately not a face and not
+photoreal.
+
+**Cost consequence, accepted knowingly:** a live call needs a connection held open for
+minutes, which Lambda cannot do. That means a container service that bills while idle
+(~$25–30/month with a load balancer) against a ~$100 credit. How to handle that is settled
+at M4 — see D-008.
+
+---
+
+## D-008 — Build the whole thing on localhost before touching AWS
+
+**Date:** 2026-09-25 · **Status:** accepted · reorders the build plan
+
+The original plan built the AWS backend (M4) before the mobile app (M5), so that the app
+would have something to call. Reordered: **M5 → M6 → M7 → M4.**
+
+The app, the text caddie, and the live voice caddie are all built against a Python dev
+server running on the builder's laptop, reached over wifi. Nothing is throwaway — the same
+FastAPI application gets wrapped for Lambda at M4, and a local server is worth having
+permanently anyway, since deploying to test a change is miserable.
+
+**Why the reorder:**
+
+- Infrastructure built before the product has settled gets built twice. The live voice
+  service in particular has an unknown shape right now.
+- It keeps spend at $0 through three more milestones.
+- M4 then opens with a **cost and architecture review against a system that actually
+  exists**, rather than a guess about one that doesn't — which is the only way to answer
+  the Fargate question from D-007 honestly.
+
+**What this requires of the code:** the app points at a single configurable base URL, and
+server code stays free of assumptions about running locally. Both are cheap to hold to and
+expensive to retrofit.
